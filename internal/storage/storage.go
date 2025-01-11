@@ -18,8 +18,9 @@ type ConnectionInfo struct {
 }
 
 var (
-	ErrNoFollowers  = errors.New("no followers found")
-	ErrLikeNotFound = errors.New("Like not found")
+	ErrNoFollowers      = errors.New("no followers found")
+	ErrLikeNotFound     = errors.New("Like not found")
+	ErrFollowerNotFound = errors.New("Follower not found")
 )
 
 func New(cfg *internalConfig.Config) *sql.DB {

@@ -32,17 +32,25 @@ func main() {
 
 	postRepo := psgr.NewPostStorage(db)
 	likeRepo := psgr.NewLikeStorage(db)
+	followRepo := psgr.NewFollowStorage(db)
 
 	postService := service.NewPostService(postRepo, log)
 	likeService := service.NewLikeService(likeRepo, log)
+	followService := service.NewFollowService(followRepo, log)
 
-	wsManager := ws.NewWebSocketManager(log, likeService, postService)
+	wsManager := ws.NewWebSocketManager(log, likeService, postService, followService)
 
 	likeConsumers := kafka.NewConsumer("like-group", log)
 	defer likeConsumers.Close()
 
-	postConsumers := kafka.NewConsumer("like-group", log)
+	postConsumers := kafka.NewConsumer("post-group", log)
 	defer postConsumers.Close()
+
+	followConsumers := kafka.NewConsumer("follow-group", log)
+	defer followConsumers.Close()
+
+	unFollowConsumers := kafka.NewConsumer("unfollow-group", log)
+	defer unFollowConsumers.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -68,6 +76,36 @@ func main() {
 		go func(consumerNum int) {
 			for {
 				err := postConsumers.ConsumeMessages(ctx, wsManager, "post")
+				if err != nil {
+					log.Error("Error consuming like messages",
+						slog.String("error", err.Error()),
+						slog.Int("consumer", consumerNum),
+						slog.String("consumer", "post"))
+					time.Sleep(5 * time.Second)
+				}
+				if ctx.Err() != nil {
+					return
+				}
+			}
+		}(i)
+		go func(consumerNum int) {
+			for {
+				err := followConsumers.ConsumeMessages(ctx, wsManager, "follow")
+				if err != nil {
+					log.Error("Error consuming like messages",
+						slog.String("error", err.Error()),
+						slog.Int("consumer", consumerNum),
+						slog.String("consumer", "post"))
+					time.Sleep(5 * time.Second)
+				}
+				if ctx.Err() != nil {
+					return
+				}
+			}
+		}(i)
+		go func(consumerNum int) {
+			for {
+				err := unFollowConsumers.ConsumeMessages(ctx, wsManager, "unfollow")
 				if err != nil {
 					log.Error("Error consuming like messages",
 						slog.String("error", err.Error()),

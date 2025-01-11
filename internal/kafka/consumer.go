@@ -74,6 +74,14 @@ func (h consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, cla
 			if err := h.wsManager.SendMessagePost(msg.Value); err != nil {
 				return err
 			}
+		case "follow":
+			if err := h.wsManager.SendMessageFollow(msg.Value); err != nil {
+				return err
+			}
+		case "unfollow":
+			if err := h.wsManager.SendMessageUnFollow(msg.Value); err != nil {
+				return err
+			}
 		}
 
 		sess.MarkMessage(msg, "")

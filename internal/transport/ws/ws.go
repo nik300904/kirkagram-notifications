@@ -34,21 +34,27 @@ type iPost interface {
 	GetUsersIDToSendByID(userID int) ([]int, error)
 }
 
+type iFollow interface {
+	GetUsernameByID(followerID int) (string, error)
+}
+
 type WebSocketManager struct {
 	clients     map[string]*websocket.Conn
 	clientsLock sync.RWMutex
 	upgrader    websocket.Upgrader
 	like        iLike
 	post        iPost
+	follow      iFollow
 	log         *slog.Logger
 }
 
-func NewWebSocketManager(log *slog.Logger, like iLike, post iPost) *WebSocketManager {
+func NewWebSocketManager(log *slog.Logger, like iLike, post iPost, follow iFollow) *WebSocketManager {
 	return &WebSocketManager{
 		clients:  make(map[string]*websocket.Conn),
 		upgrader: upgrader,
 		like:     like,
 		post:     post,
+		follow:   follow,
 		log:      log,
 	}
 }
@@ -118,8 +124,6 @@ func (wm *WebSocketManager) SendMessageLike(msg []byte) error {
 
 	userIDToSend, err := wm.like.GetUserIDToSendByPostID(like.PostID)
 
-	fmt.Println("должно отправится ему", userIDToSend)
-
 	wm.clientsLock.RLock()
 	conn, exists := wm.clients[strconv.Itoa(userIDToSend)]
 	wm.clientsLock.RUnlock()
@@ -130,8 +134,6 @@ func (wm *WebSocketManager) SendMessageLike(msg []byte) error {
 		return nil
 	}
 
-	fmt.Println("существование", exists)
-
 	username, err := wm.like.GetUsernameByUserID(like.UserID)
 	if err != nil {
 		wm.log.Error("failed to get username", slog.String("error", err.Error()))
@@ -140,6 +142,72 @@ func (wm *WebSocketManager) SendMessageLike(msg []byte) error {
 	}
 
 	message := username + " лайкнул вашу запись"
+
+	return conn.WriteMessage(websocket.TextMessage, []byte(message))
+}
+
+func (wm *WebSocketManager) SendMessageFollow(msg []byte) error {
+	var follow models.Follow
+
+	err := json.Unmarshal(msg, &follow)
+	if err != nil {
+		wm.log.Error("failed to unmarshal follow", slog.String("error", err.Error()))
+
+		return err
+	}
+
+	wm.clientsLock.RLock()
+	conn, exists := wm.clients[strconv.Itoa(follow.FollowingID)]
+	wm.clientsLock.RUnlock()
+
+	if !exists {
+		wm.log.Debug("no connection for this user", slog.Int("followingID", follow.FollowingID))
+
+		return nil
+	}
+
+	username, err := wm.follow.GetUsernameByID(follow.FollowerID)
+
+	if err != nil {
+		wm.log.Error("failed to get username", slog.String("error", err.Error()))
+
+		return err
+	}
+
+	message := username + " подписался на вас"
+
+	return conn.WriteMessage(websocket.TextMessage, []byte(message))
+}
+
+func (wm *WebSocketManager) SendMessageUnFollow(msg []byte) error {
+	var follow models.Follow
+
+	err := json.Unmarshal(msg, &follow)
+	if err != nil {
+		wm.log.Error("failed to unmarshal follow", slog.String("error", err.Error()))
+
+		return err
+	}
+
+	wm.clientsLock.RLock()
+	conn, exists := wm.clients[strconv.Itoa(follow.FollowingID)]
+	wm.clientsLock.RUnlock()
+
+	if !exists {
+		wm.log.Debug("no connection for this user", slog.Int("followingID", follow.FollowingID))
+
+		return nil
+	}
+
+	username, err := wm.follow.GetUsernameByID(follow.FollowerID)
+
+	if err != nil {
+		wm.log.Error("failed to get username", slog.String("error", err.Error()))
+
+		return err
+	}
+
+	message := username + " отписался от вас"
 
 	return conn.WriteMessage(websocket.TextMessage, []byte(message))
 }
@@ -155,14 +223,12 @@ func (wm *WebSocketManager) SendMessagePost(msg []byte) error {
 	}
 
 	userIDToSendList, err := wm.post.GetUsersIDToSendByID(post.UserID)
-	fmt.Println("zalypa ", userIDToSendList)
 
 	var connList []*websocket.Conn
 
 	for _, userID := range userIDToSendList {
 		wm.clientsLock.RLock()
 		conn, exists := wm.clients[strconv.Itoa(userID)]
-		fmt.Println("Такого юзера ", strconv.Itoa(userID), exists)
 		wm.clientsLock.RUnlock()
 
 		if !exists {
@@ -182,8 +248,6 @@ func (wm *WebSocketManager) SendMessagePost(msg []byte) error {
 	message := username + " выпустил новую запись"
 
 	var errorsList []error
-
-	fmt.Println("dlina ", len(connList))
 
 	for idx, conn := range connList {
 		err = conn.WriteMessage(websocket.TextMessage, []byte(message))
